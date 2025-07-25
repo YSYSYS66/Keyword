@@ -1,4 +1,21 @@
 // cold_task.js
+
+// ========== 自动跳出图片详情页保险 ==========
+(function () {
+  const params = new URLSearchParams(location.search);
+  const isBingImageDetailPage =
+    location.hostname === "www.bing.com" &&
+    location.pathname === "/images/search" &&
+    params.get("view") === "detailv2";
+
+  if (isBingImageDetailPage) {
+    console.log("[冷养] 🟡 当前在 Bing 图片详情页，强制跳转回首页...");
+    window.location.href = "https://www.bing.com";
+    return;
+  }
+})();
+
+// ========== 冷养主流程 ==========
 window.COLDYANG = {
   run: async function(opts = {}) {
     const STORAGE_KEY = '__coldyang_task_state__';
@@ -120,41 +137,29 @@ window.COLDYANG = {
           await sleep(param.scrollInterval);
         }
 
-        // 优先选择主结果区链接
+        // ========== 只采主结果区外链 ==========
         log("筛选主结果区可点击链接...");
-        let links = Array.from(document.querySelectorAll(".b_algo h2 a"))
+        let links = Array.from(document.querySelectorAll('.b_algo h2 a'))
           .filter(a =>
             a.href &&
             a.offsetParent !== null &&
             a.offsetWidth > 50 &&
-            a.offsetHeight > 12
+            a.offsetHeight > 12 &&
+            !a.href.includes('bing.com/images/search') &&
+            !a.href.includes('view=detailv2')
           );
 
-        // 如果主结果区链接太少，补充其它可见链接（但排除图片详情页和脚本类）
-        if (links.length < 5) {
-          log("主结果链接不足，补充其它链接...");
-          let extraLinks = Array.from(document.querySelectorAll("a"))
-            .filter(a =>
-              a.href &&
-              a.offsetParent !== null &&
-              a.offsetWidth > 50 &&
-              a.offsetHeight > 12 &&
-              !a.href.match(/microsoft|bing\.com\/search|view=detailv2|javascript:/i)
-            );
-          // 合并去重
-          links = Array.from(new Set(links.concat(extraLinks)));
-        }
+        log('[冷养DEBUG] 采样到的链接:', links.map(a => a.href));
 
-        log(`找到 ${links.length} 个有效链接`);
         if (links.length === 0) {
-          log("无可点击链接，跳到下一个任务", "warn");
+          log("无可点击主结果链接，跳到下一个任务", "warn");
           saveState({ queue, curIdx: i+1 });
           location.href = "https://www.bing.com";
           return;
         }
-        let clickCount = randomBetween(2, 5);
+        let clickCount = Math.min(randomBetween(2, 5), links.length); // 绝不超出实际数量
         let clickLinks = shuffle(links).slice(0, clickCount);
-        log(`准备点击 ${clickCount} 个链接`);
+        log(`准备点击 ${clickCount} 个主结果链接`);
         for (let [idx2, a] of clickLinks.entries()) {
           if (window.__coldyang_stop__) {
             log("收到停止信号，终止点击", "warn");
