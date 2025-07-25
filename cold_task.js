@@ -65,6 +65,12 @@
           // 等待新页面加载
           await sleep(2000);
           
+          // 检查停止信号
+          if (window.__coldyang_stop__) {
+            log("检测到停止信号，跳过新页面处理");
+            return;
+          }
+          
           // 检查新页面是否还在
           if (win.closed) {
             log("新页面已关闭，跳过处理");
@@ -74,6 +80,12 @@
           // 在新页面中执行滚动
           log(`在新页面中开始滚动 ${param.scrollTimes} 次...`);
           for (let k = 1; k <= param.scrollTimes; k++) {
+            // 每次滚动前检查停止信号
+            if (window.__coldyang_stop__) {
+              log("检测到停止信号，停止新页面滚动");
+              break;
+            }
+            
             if (win.closed) {
               log("新页面已关闭，停止滚动");
               break;
@@ -88,11 +100,26 @@
             }
           }
           
+          // 检查停止信号
+          if (window.__coldyang_stop__) {
+            log("检测到停止信号，跳过剩余停留时间");
+            return;
+          }
+          
           // 停留剩余时间
           let remainingTime = staySec - (param.scrollTimes * param.scrollInterval / 1000);
           if (remainingTime > 0) {
             log(`滚动完成，继续停留 ${Math.round(remainingTime)} 秒`);
-            await sleep(remainingTime * 1000);
+            // 分段停留，每5秒检查一次停止信号
+            let checkInterval = 5000;
+            let totalChecks = Math.ceil(remainingTime * 1000 / checkInterval);
+            for (let check = 0; check < totalChecks; check++) {
+              if (window.__coldyang_stop__) {
+                log("检测到停止信号，提前结束停留");
+                break;
+              }
+              await sleep(Math.min(checkInterval, remainingTime * 1000 - check * checkInterval));
+            }
           }
         } catch (e) {
           log(`新页面处理异常：${e.message}`);
@@ -152,6 +179,13 @@
           log("搜索结果页已加载");
           log("滚动页面中...");
           for (let k = 1; k <= param.scrollTimes; k++) {
+            // 每次滚动前检查停止信号
+            if (window.__coldyang_stop__) {
+              log("检测到停止信号，停止页面滚动");
+              saveState({ queue, curIdx: i });
+              window.__coldyang_running__ = false;
+              return;
+            }
             window.scrollBy(0, window.innerHeight * 0.85);
             await sleep(param.scrollInterval);
           }
@@ -178,6 +212,14 @@
           let clickLinks = shuffle(links).slice(0, clickCount);
           log(`准备点击 ${clickCount} 个主结果链接`);
           for (let [idx2, a] of clickLinks.entries()) {
+            // 每次点击前检查停止信号
+            if (window.__coldyang_stop__) {
+              log("检测到停止信号，停止点击链接");
+              saveState({ queue, curIdx: i });
+              window.__coldyang_running__ = false;
+              return;
+            }
+            
             log(`点击第${idx2+1}个：${a.href}`);
             let win = window.open(a.href, "_blank");
             let staySec = randomBetween(param.minStay, param.maxStay);
