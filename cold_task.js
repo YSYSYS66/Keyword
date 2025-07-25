@@ -21,15 +21,6 @@ window.COLDYANG = {
       console.log(line);
     }
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-    async function waitForSelector(sel, timeout=12000) {
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        const el = document.querySelector(sel);
-        if (el) return el;
-        await sleep(200);
-      }
-      return null;
-    }
     async function waitForUrlContains(str, timeout=12000) {
       const start = Date.now();
       while (Date.now() - start < timeout) {
@@ -99,37 +90,16 @@ window.COLDYANG = {
         }
         const task = queue[i];
         log(`\n======== 任务 [${task.idx}/50] "${task.keyword}" ========`);
-        if (!(location.hostname === "www.bing.com" && location.pathname === "/")) {
-          log("跳转 Bing 首页...");
-          saveState({ queue, curIdx: i });
-          location.href = "https://www.bing.com";
-          return;
-        } else {
-          log("已在 Bing 首页");
-        }
-        log("尝试定位 Bing 搜索框...");
-        let input = await waitForSelector("input[name='q'], input[type='search']", 9000);
-        if (input) {
-          input.value = task.keyword;
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          let form = input.closest("form");
-          if (form) {
-            form.submit();
-            log(`已提交搜索：${task.keyword}`);
-          } else {
-            log("未找到搜索表单，直接跳转到搜索页", "warn");
-            saveState({ queue, curIdx: i });
-            location.href = `https://www.bing.com/search?q=${encodeURIComponent(task.keyword)}`;
-            return;
-          }
-        } else {
-          log("9秒内搜索框未出现，直接跳转到搜索页", "warn");
+        if (!(location.hostname === "www.bing.com" && location.pathname === "/search")) {
+          log("跳转到 Bing 搜索结果页...");
           saveState({ queue, curIdx: i });
           location.href = `https://www.bing.com/search?q=${encodeURIComponent(task.keyword)}`;
           return;
+        } else {
+          log("已在 Bing 搜索结果页");
         }
 
-        log("等待结果页加载...");
+        log("等待搜索结果页加载...");
         const pageReady = await waitForUrlContains("?q=", 12000);
         if (!pageReady) {
           log("搜索结果页加载超时，跳到下一个任务", "error");
@@ -149,18 +119,35 @@ window.COLDYANG = {
           log(`滚动 ${k}/${param.scrollTimes}`);
           await sleep(param.scrollInterval);
         }
-        log("筛选可点击链接...");
-        let links = Array.from(document.querySelectorAll("a"))
+
+        // 优先选择主结果区链接
+        log("筛选主结果区可点击链接...");
+        let links = Array.from(document.querySelectorAll(".b_algo h2 a"))
           .filter(a =>
             a.href &&
             a.offsetParent !== null &&
             a.offsetWidth > 50 &&
-            a.offsetHeight > 12 &&
-            !a.href.match(/microsoft|bing\.com\/search|javascript:/i)
+            a.offsetHeight > 12
           );
+
+        // 如果主结果区链接太少，补充其它可见链接（但排除图片详情页和脚本类）
+        if (links.length < 5) {
+          log("主结果链接不足，补充其它链接...");
+          let extraLinks = Array.from(document.querySelectorAll("a"))
+            .filter(a =>
+              a.href &&
+              a.offsetParent !== null &&
+              a.offsetWidth > 50 &&
+              a.offsetHeight > 12 &&
+              !a.href.match(/microsoft|bing\.com\/search|view=detailv2|javascript:/i)
+            );
+          // 合并去重
+          links = Array.from(new Set(links.concat(extraLinks)));
+        }
+
         log(`找到 ${links.length} 个有效链接`);
         if (links.length === 0) {
-          log("无可点击链接，回首页", "warn");
+          log("无可点击链接，跳到下一个任务", "warn");
           saveState({ queue, curIdx: i+1 });
           location.href = "https://www.bing.com";
           return;
@@ -187,7 +174,7 @@ window.COLDYANG = {
             log("点击/关闭标签页出错：" + (err.message || err), "error");
           }
         }
-        log("本任务结束，回首页准备下一个");
+        log("本任务结束，准备下一个");
         saveState({ queue, curIdx: i+1 });
         location.href = "https://www.bing.com";
         return;
